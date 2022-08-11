@@ -91,7 +91,7 @@ func startRoom(room, server, proxy string, u *url.URL, id string) {
 	for {
 		_, message, err := c.ReadMessage()
 		if err != nil {
-			fmt.Println("return " + err.Error())
+			// fmt.Println("return " + err.Error())
 			return
 		}
 
@@ -105,12 +105,12 @@ func startRoom(room, server, proxy string, u *url.URL, id string) {
 		}
 
 		if m.SubscriptionKey == "connected" {
-			fmt.Println("connected")
+			fmt.Println("subscribe to messages")
 			for _, msg := range messages {
 				b := bytes.ReplaceAll(msg, []byte(`CLIENT_ID`), []byte(m.Params.ClientId))
 				b = bytes.ReplaceAll(b, []byte(`XID`), []byte(id))
 				if err = c.WriteMessage(websocket.TextMessage, b); err != nil {
-					fmt.Println("return " + err.Error())
+					// fmt.Println("return " + err.Error())
 					return
 				}
 			}
@@ -122,10 +122,10 @@ func startRoom(room, server, proxy string, u *url.URL, id string) {
 		}
 
 		if m.Params.Message.Type == "lovense" {
-			fmt.Println("donate")
+			// fmt.Println("donate")
 			fmt.Println(m.Params.Message.Details.LovenseDetails.Detail.Name, " send ", m.Params.Message.Details.LovenseDetails.Detail.Amount, "tokens")
 		} else if m.Params.Message.Type == "tip" {
-			fmt.Println("donate")
+			// fmt.Println("donate")
 			fmt.Println(m.Params.Message.Userdata.Username, " send ", m.Params.Message.Details.Amount, "tokens")
 		}
 	}
