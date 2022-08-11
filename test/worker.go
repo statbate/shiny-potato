@@ -58,9 +58,9 @@ type ServerResponse struct {
 	} `json:"params,omitempty"`
 }
 
-func startRoom(room, server, proxy string, u *url.URL, token string, id string) {
+func startRoom(room, server, proxy string, u *url.URL, id string) {
 	// curl -vvv -X POST -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" -H "X-Requested-With: XMLHttpRequest" -d "method=getRoomData" -d "args[]=Icehotangel"   "https://rt.bongocams.com/tools/amf.php?res=771840&t=1654437233142"
-	fmt.Printf("token %s id %s\n", token, id)
+
 	fmt.Println("Start", room, "server", server, "proxy", proxy)
 
 	Dialer := *websocket.DefaultDialer
@@ -88,12 +88,6 @@ func startRoom(room, server, proxy string, u *url.URL, token string, id string) 
 
 	defer c.Close()
 
-	ws, _, err := Dialer.Dial("wss://websocket.stripchat.com/connection/websocket", nil)
-	if err != nil {
-		panic(err)
-	}
-	defer ws.Close()
-
 	for {
 		_, message, err := c.ReadMessage()
 		if err != nil {
@@ -120,16 +114,12 @@ func startRoom(room, server, proxy string, u *url.URL, token string, id string) 
 					return
 				}
 			}
-			if err = ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"params":{"token":"%s","name":"js"},"id":1}`, token))); err != nil {
-				panic(err)
-			}
+
 		}
 
 		if !strings.Contains(m.SubscriptionKey, "newChatMessage") {
 			continue
 		}
-
-		fmt.Println("proper msg")
 
 		if m.Params.Message.Type == "lovense" {
 			fmt.Println("donate")

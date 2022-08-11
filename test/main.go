@@ -22,12 +22,12 @@ func main() {
 	server := os.Args[2]
 	proxy := os.Args[3]
 
-	u, token, id := getToken(room)
+	u, id := getToken(room)
 
-	startRoom(room, server, proxy, u, token, id)
+	startRoom(room, server, proxy, u, id)
 }
 
-func getToken(room string) (*url.URL, string, string) {
+func getToken(room string) (*url.URL, string) {
 	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, "https://ru.stripchat.com/"+room, nil)
 	if err != nil {
 		panic(err)
@@ -61,17 +61,11 @@ func getToken(room string) (*url.URL, string, string) {
 		panic(err)
 	}
 
-	re = regexp.MustCompile(`"token":"*(.*?)\s*"`)
-	m = re.FindSubmatch(buf)
-	if len(m) != 2 {
-		panic("not match")
-	}
-
 	re = regexp.MustCompile(`img.strpst.com/thumbs/*(.*?)\s*"`)
 	id := re.FindSubmatch(buf)
 	if len(id) != 2 {
 		panic("not match")
 	}
 	xid := string(id[1])
-	return u, string(m[1]), xid[strings.Index(xid, "/")+1:]
+	return u, xid[strings.Index(xid, "/")+1:]
 }
