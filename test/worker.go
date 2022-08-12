@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,27 @@ import (
 )
 
 var messages [][]byte
+
+type Amount struct {
+	value int
+}
+
+func (a Amount) Value() int {
+	return a.value
+}
+
+func (a *Amount) UnmarshalJSON(b []byte) error {
+	str := string(b)
+	s := 0
+	e := len(b)
+	if len(str) > 2 && str[0] == '"' && str[len(b)-1] == '"' {
+		s = 1
+		e = len(b) - 1
+	}
+	var err error
+	a.value, err = strconv.Atoi(str[s:e])
+	return err
+}
 
 func init() {
 	messages = append(messages, []byte(`{"id":"1660248194970-sub-lotteryChanged","method":"PUT","url":"/front/clients/CLIENT_ID/subscriptions/lotteryChanged"}`))
@@ -37,7 +59,14 @@ func init() {
 
 type ServerResponse struct {
 	SubscriptionKey string `json:"subscriptionKey,omitempty"`
-	Params          struct {
+
+	Params struct {
+		Model struct {
+			Status string `json:"status,omitempty"`
+		} `json:"model,omitempty"`
+		User struct {
+			Status string `json:"status,omitempty"`
+		} `json:"user,omitempty"`
 		ClientId string `json:"clientId,omitempty"`
 		Message  struct {
 			Type     string `json:"type,omitempty"`
@@ -45,12 +74,12 @@ type ServerResponse struct {
 				Username string `json:"username,omitempty"`
 			} `json:"userdata,omitempty"`
 			Details struct {
-				Amount         float64 `json:"amount,omitempty"`
+				Amount         Amount `json:"amount,omitempty"`
 				LovenseDetails struct {
 					Type   string `json:"type,omitempty"`
 					Detail struct {
-						Name   string  `json:"name,omitempty"`
-						Amount float64 `json:"amount,omitempty"`
+						Name   string `json:"name,omitempty"`
+						Amount Amount `json:"amount,omitempty"`
 					} `json:"detail,omitempty"`
 				} `json:"lovenseDetails"`
 			} `json:"details,omitempty"`
@@ -91,7 +120,7 @@ func startRoom(room, server, proxy string, u *url.URL, id string) {
 	for {
 		_, message, err := c.ReadMessage()
 		if err != nil {
-			// fmt.Println("return " + err.Error())
+			fmt.Println("return " + err.Error())
 			return
 		}
 
@@ -117,16 +146,27 @@ func startRoom(room, server, proxy string, u *url.URL, id string) {
 
 		}
 
+		if strings.Contains(m.SubscriptionKey, "userUpdated") {
+			if m.Params.User.Status == "off" {
+				fmt.Println("user exiting")
+				return
+			}
+		} else if strings.Contains(m.SubscriptionKey, "modelStatusChanged") {
+			if m.Params.Model.Status == "off" {
+				fmt.Println("user exiting")
+				return
+			}
+		}
 		if !strings.Contains(m.SubscriptionKey, "newChatMessage") {
 			continue
 		}
 
 		if m.Params.Message.Type == "lovense" {
 			// fmt.Println("donate")
-			fmt.Println(m.Params.Message.Details.LovenseDetails.Detail.Name, " send ", m.Params.Message.Details.LovenseDetails.Detail.Amount, "tokens")
+			fmt.Println(m.Params.Message.Details.LovenseDetails.Detail.Name, " send ", m.Params.Message.Details.LovenseDetails.Detail.Amount.Value(), "tokens")
 		} else if m.Params.Message.Type == "tip" {
 			// fmt.Println("donate")
-			fmt.Println(m.Params.Message.Userdata.Username, " send ", m.Params.Message.Details.Amount, "tokens")
+			fmt.Println(m.Params.Message.Userdata.Username, " send ", m.Params.Message.Details.Amount.Value(), "tokens")
 		}
 	}
 }
