@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"runtime"
 	"strings"
@@ -114,5 +113,5 @@ func startRoom(workerData Info) {
 	workerData.Rid = rid
 	workerData.ch = make(chan struct{})
 
-	go xWorker(workerData, url.URL{Scheme: "wss", Host: workerData.Server + ".bcccdn.com", Path: "/websocket"})
+	go xWorker(workerData)
 }

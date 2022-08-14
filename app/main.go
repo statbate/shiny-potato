@@ -56,14 +56,14 @@ func main() {
 	go saveLogs()
 	go broadcast()
 
-	http.HandleFunc("/bongacams/ws/", wsHandler)
-	http.HandleFunc("/bongacams/cmd/", cmdHandler)
-	http.HandleFunc("/bongacams/list/", listHandler)
-	http.HandleFunc("/bongacams/debug/", debugHandler)
+	http.HandleFunc("/stripchat/ws/", wsHandler)
+	http.HandleFunc("/stripchat/cmd/", cmdHandler)
+	http.HandleFunc("/stripchat/list/", listHandler)
+	http.HandleFunc("/stripchat/debug/", debugHandler)
 
 	go fastStart()
 
-	const SOCK = "/tmp/bongacams.sock"
+	const SOCK = "/tmp/stripchat.sock"
 	os.Remove(SOCK)
 	unixListener, err := net.Listen("unix", SOCK)
 	if err != nil {
@@ -127,6 +127,6 @@ func fastStart() {
 			Tips:   v.Tips,
 		}
 		startRoom(workerData)
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 	}
 }

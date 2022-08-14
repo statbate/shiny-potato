@@ -146,10 +146,6 @@ func startRoom(room, server, proxy string, u *url.URL, id string) {
 			fmt.Println("user exiting")
 			return
 		}
-		
-		if !strings.Contains(m.SubscriptionKey, "newChatMessage") {
-			continue
-		}
 
 		if m.Params.Message.Type == "tip" {
 			fmt.Println(m.Params.Message.Userdata.Username, " send ", m.Params.Message.Details.Amount.Value(), "tokens")

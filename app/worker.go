@@ -3,40 +3,68 @@ package main
 import (
 	"fmt"
 	"github.com/gorilla/websocket"
-	jsoniter "github.com/json-iterator/go"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+	"regexp"
+	"bytes"
+	"context"
+	"io/ioutil"
+	"strconv"
 )
 
 var uptime = time.Now().Unix()
 
-type AuthResponse struct {
-	Status    string `json:"status"`
-	LocalData struct {
-		DataKey string `json:"dataKey"`
-	} `json:"localData"`
-	UserData struct {
-		Username    string `json:"username"`
-		DisplayName string `json:"displayName"`
-		Location    string `json:"location"`
-		Chathost    string `json:"chathost"`
-		IsRu        bool   `json:"isRu"`
-	} `json:"userData"`
+type Amount struct {
+	value int64
+}
+
+func (a Amount) Value() int64 {
+	return a.value
+}
+
+func (a *Amount) UnmarshalJSON(b []byte) error {
+	str := string(b)
+	s := 0
+	e := len(b)
+	if len(str) > 2 && str[0] == '"' && str[len(b)-1] == '"' {
+		s = 1
+		e = len(b) - 1
+	}
+	var err error
+	a.value, err = strconv.ParseInt(str[s:e], 10, 64)
+	return err
 }
 
 type ServerResponse struct {
-	TS   int64               `json:"ts"`
-	Type string              `json:"type"`
-	Body jsoniter.RawMessage `json:"body"`
-}
+	SubscriptionKey string `json:"subscriptionKey,omitempty"`
 
-type DonateResponse struct {
-	F struct {
-		Username string `json:"username"`
-	} `json:"f"`
-	A int64 `json:"a"`
+	Params struct {
+		Model struct {
+			Status string `json:"status,omitempty"`
+		} `json:"model,omitempty"`
+		User struct {
+			Status string `json:"status,omitempty"`
+		} `json:"user,omitempty"`
+		ClientId string `json:"clientId,omitempty"`
+		Message  struct {
+			Type     string `json:"type,omitempty"`
+			Userdata struct {
+				Username string `json:"username,omitempty"`
+			} `json:"userdata,omitempty"`
+			Details struct {
+				Amount         Amount `json:"amount,omitempty"`
+				LovenseDetails struct {
+					Type   string `json:"type,omitempty"`
+					Detail struct {
+						Name   string `json:"name,omitempty"`
+						Amount Amount `json:"amount,omitempty"`
+					} `json:"detail,omitempty"`
+				} `json:"lovenseDetails"`
+			} `json:"details,omitempty"`
+		} `json:"message,omitempty"`
+	} `json:"params,omitempty"`
 }
 
 func mapRooms() {
@@ -89,52 +117,69 @@ func announceCount() {
 	}
 }
 
-func getAMF(room string) (bool, *AuthResponse) {
-
-	v := &AuthResponse{}
-
-	req, err := http.NewRequest(http.MethodPost, "https://rt.bongocams.com/tools/amf.php?res=771840&t=1654437233142", strings.NewReader(`method=getRoomData&args[]=`+room))
+func getToken(room string) (*url.URL, string) {	
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, "https://ru.stripchat.com/"+room, nil)
 	if err != nil {
-		fmt.Println(err.Error())
-		return false, v
+		return &url.URL{}, "cantGetToken"
 	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-	req.Header.Add("X-Requested-With", "XMLHttpRequest")
-	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Referrer", "https://bongacams.com")
-	req.Header.Add("User-agent", "curl/7.79.1")
-
+	req.Header.Add("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:33.0) Gecko/20100101 Firefox/33.0")
+	req.Header.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Add("Accept-Language", "en-US,en;q=0.5")
+	req.Header.Add("Connection", "keep-alive")
+	req.Header.Add("Referer", "https://ru.stripchat.com")
 	rsp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		fmt.Println(err.Error())
-		return false, v
+		return &url.URL{}, "cantGetToken"
+	} else if rsp.StatusCode != http.StatusOK {
+		return &url.URL{}, "cantGetToken"
 	}
+
 	defer rsp.Body.Close()
 
-	if err = json.NewDecoder(rsp.Body).Decode(v); err != nil {
-		fmt.Println(err.Error())
-		return false, v
+	buf, err := ioutil.ReadAll(rsp.Body)
+	if err != nil {
+		return &url.URL{}, "cantGetToken"
+	}
+	re := regexp.MustCompile(`"websocketUrl":"*(.*?)\s*"`)
+	m := re.FindSubmatch(buf)
+	if len(m) != 2 {
+		return &url.URL{}, "cantGetToken"
+	}
+	r := bytes.ReplaceAll(m[1], []byte(`\u002F`), []byte(`/`))
+	u, err := url.Parse(string(r))
+	if err != nil {
+		return &url.URL{}, "cantGetToken"
 	}
 
-	return true, v
+	re = regexp.MustCompile(`img.strpst.com/thumbs/*(.*?)\s*"`)
+	id := re.FindSubmatch(buf)
+	if len(id) != 2 {
+		return &url.URL{}, "cantGetToken"
+	}
+	xid := string(id[1])
+	return u, xid[strings.Index(xid, "/")+1:]
 }
 
-func xWorker(workerData Info, u url.URL) {
+func xWorker(workerData Info) {
 	fmt.Println("Start", workerData.room, "server", workerData.Server, "proxy", workerData.Proxy)
-
+	
 	rooms.Add <- workerData
 
 	defer func() {
 		rooms.Del <- workerData.room
 	}()
-
-	ok, v := getAMF(workerData.room)
-	if !ok {
-		fmt.Println("exit: no amf parms")
+	
+	u, id := getToken(workerData.room)
+	if id == "cantGetToken" {
+		fmt.Println("cantGetToken", workerData.room)
 		return
 	}
-
+	
 	Dialer := *websocket.DefaultDialer
+
+	proxyMap := make(map[string]string)
+	proxyMap["us"] = "5.161.128.20:3128"
+	proxyMap["fi"] = "65.21.180.188:3128"
 
 	if _, ok := conf.Proxy[workerData.Proxy]; ok {
 		Dialer = websocket.Dialer{
@@ -149,128 +194,93 @@ func xWorker(workerData Info, u url.URL) {
 
 	c, _, err := Dialer.Dial(u.String(), nil)
 	if err != nil {
-		fmt.Println(err.Error(), workerData.room)
-		return
-	}
-
-	defer c.Close()
-
-	c.SetReadDeadline(time.Now().Add(60 * time.Second))
-
-	if err = c.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"id":%d,"name":"joinRoom","args":["%s",{"username":"%s","displayName":"%s","location":"%s","chathost":"%s","isRu":%t,"isPerformer":false,"hasStream":false,"isLogged":false,"isPayable":false,"showType":"public"},"%s"]}`, 1, v.UserData.Chathost, v.UserData.Username, v.UserData.DisplayName, v.UserData.Location, v.UserData.Chathost, v.UserData.IsRu, v.LocalData.DataKey))); err != nil {
 		fmt.Println(err.Error())
 		return
 	}
 
-	_, message, err := c.ReadMessage()
-	if err != nil {
-		fmt.Println(err.Error(), workerData.room)
-		return
-	}
-
-	slog <- saveLog{workerData.Rid, time.Now().Unix(), string(message)}
-
-	if string(message) == `{"id":1,"result":{"audioAvailable":false,"freeShow":false},"error":null}` {
-		fmt.Println("room offline, exit", workerData.room)
-		return
-	}
-
-	if err = c.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"id":%d,"name":"ChatModule.connect","args":["public-chat"]}`, 2))); err != nil {
-		fmt.Println(err.Error(), workerData.room)
-		return
-	}
-
-	_, message, err = c.ReadMessage()
-	if err != nil {
-		fmt.Println(err.Error(), workerData.room)
-		return
-	}
-
-	slog <- saveLog{workerData.Rid, time.Now().Unix(), string(message)}
-
-	quit := make(chan struct{})
-	pid := 3
-
-	defer func() {
-		close(quit)
-	}()
-
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-quit:
-				return
-			case <-ticker.C:
-				if err = c.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"id":%d,"name":"ping"}`, pid))); err != nil {
-					fmt.Println(err.Error(), workerData.room)
-					rooms.Stop <- workerData.room
-					return
-				}
-				pid++
-				break
-			}
-		}
-	}()
-
+	defer c.Close()
+	
 	dons := make(map[string]struct{})
-
+	
 	for {
-		select {
-		case <-workerData.ch:
-			fmt.Println("Exit room:", workerData.room)
-			return
-		default:
-		}
-
 		c.SetReadDeadline(time.Now().Add(30 * time.Minute))
 		_, message, err := c.ReadMessage()
 		if err != nil {
-			fmt.Println(err.Error())
+			fmt.Println(err.Error(), workerData.room)
 			return
 		}
-
+		
 		now := time.Now().Unix()
-
-		slog <- saveLog{workerData.Rid, now, string(message)}
-
+		
+		slog <- saveLog{workerData.Rid, time.Now().Unix(), string(message)}
+		
 		m := &ServerResponse{}
 
 		if err = json.Unmarshal(message, m); err != nil {
 			fmt.Println(err.Error(), workerData.room)
 			continue
 		}
-
+		
 		workerData.Last = now
 		rooms.Add <- workerData
 
-		if m.Type == "ServerMessageEvent:PERFORMER_STATUS_CHANGE" && string(m.Body) == `"offline"` {
-			fmt.Println(m.Type, workerData.room)
-			return
-		}
-
-		if m.Type == "ServerMessageEvent:ROOM_CLOSE" {
-			fmt.Println(m.Type, workerData.room)
-			return
-		}
-
-		if m.Type == "ServerMessageEvent:INCOMING_TIP" {
-			d := &DonateResponse{}
-			if err = json.Unmarshal(m.Body, d); err == nil {
-				//fmt.Println(d.F.Username, "send", d.A, "tokens")
-
-				workerData.Tips++
-				if _, ok := dons[d.F.Username]; !ok {
-					dons[d.F.Username] = struct{}{}
-					workerData.Dons++
+		if m.SubscriptionKey == "connected" {
+			messages := [][]byte{}
+			messages = append(messages, []byte(`{"id":"1660248194970-sub-lotteryChanged","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/lotteryChanged"}`))
+			messages = append(messages, []byte(`{"id":"1660248194970-sub-userBanned:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/userBanned:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194970-sub-goalChanged:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/goalChanged:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194970-sub-modelStatusChanged:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/modelStatusChanged:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194971-sub-broadcastSettingsChanged:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/broadcastSettingsChanged:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194971-sub-tipMenuUpdated:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/tipMenuUpdated:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194971-sub-topicChanged:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/topicChanged:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194971-sub-userUpdated:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/userUpdated:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194971-sub-interactiveToyStatusChanged:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/interactiveToyStatusChanged:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194971-sub-groupShow:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/groupShow:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194971-sub-deleteChatMessages:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/deleteChatMessages:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194971-sub-tipLeaderboardSettingsUpdated:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/tipLeaderboardSettingsUpdated:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194971-sub-modelAppUpdated:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/modelAppUpdated:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194972-sub-newKing:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/newKing:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194972-sub-privateMessageSettingsChanged:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/privateMessageSettingsChanged:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194972-sub-newChatMessage:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/newChatMessage:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194972-sub-fanClubUpdated:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/fanClubUpdated:`+id+`"}`))
+			messages = append(messages, []byte(`{"id":"1660248194972-sub-viewServerChanged:hls-07","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/viewServerChanged:hls-07"}`))
+			for _, msg := range messages {
+				if err = c.WriteMessage(websocket.TextMessage, msg); err != nil {
+					fmt.Println(err.Error(), workerData.room)
+					return
 				}
-
-				save <- saveData{workerData.room, d.F.Username, workerData.Rid, d.A, now}
-
-				workerData.Income += d.A
-				rooms.Add <- workerData
 			}
+			messages = nil
+		}
+
+		if strings.Contains(m.SubscriptionKey, "userUpdated") && m.Params.User.Status == "off" {
+			fmt.Println("user exiting", workerData.room)
+			return
+		} 
+		
+		if strings.Contains(m.SubscriptionKey, "modelStatusChanged") && m.Params.Model.Status == "off" {
+			fmt.Println("user exiting", workerData.room)
+			return
+		}
+
+		if m.Params.Message.Type == "tip" {
+			
+			if len(m.Params.Message.Userdata.Username) < 3 {
+				continue
+			}
+			
+			fmt.Println(m.Params.Message.Userdata.Username, "send", m.Params.Message.Details.Amount.Value(), "tokens")
+			
+			workerData.Tips++
+			if _, ok := dons[m.Params.Message.Userdata.Username]; !ok {
+				dons[m.Params.Message.Userdata.Username] = struct{}{}
+				workerData.Dons++
+			}
+			
+			save <- saveData{workerData.room, strings.ToLower(m.Params.Message.Userdata.Username), workerData.Rid, m.Params.Message.Details.Amount.Value(), now}
+			
+			workerData.Income += m.Params.Message.Details.Amount.Value()
+			rooms.Add <- workerData
 		}
 	}
 }
