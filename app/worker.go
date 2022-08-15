@@ -74,7 +74,7 @@ func mapRooms() {
 	for {
 		select {
 		case m := <-rooms.Add:
-			data[m.room] = &Info{Server: m.Server, Proxy: m.Proxy, Start: m.Start, Last: m.Last, Online: m.Online, Income: m.Income, Dons: m.Dons, Tips: m.Tips, ch: m.ch}
+			data[m.room] = &Info{Id: m.Id, Server: m.Server, Proxy: m.Proxy, Start: m.Start, Last: m.Last, Online: m.Online, Income: m.Income, Dons: m.Dons, Tips: m.Tips, ch: m.ch}
 
 		case s := <-rooms.Json:
 			j, err := json.Marshal(data)
@@ -117,51 +117,35 @@ func announceCount() {
 	}
 }
 
-func getToken(room string) (*url.URL, string) {	
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, "https://ru.stripchat.com/"+room, nil)
+func getToken(room string) string {
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, "https://stripchat.com/"+room, nil)
 	if err != nil {
-		return &url.URL{}, "cantGetToken"
+		return "cant get req"
 	}
 	req.Header.Add("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:33.0) Gecko/20100101 Firefox/33.0")
 	req.Header.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Add("Accept-Language", "en-US,en;q=0.5")
 	req.Header.Add("Connection", "keep-alive")
-	req.Header.Add("Referer", "https://ru.stripchat.com")
+	req.Header.Add("Referer", "https://stripchat.com")
 	rsp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return &url.URL{}, "cantGetToken"
-	} else if rsp.StatusCode != http.StatusOK {
-		return &url.URL{}, "cantGetToken"
+	if err != nil || rsp.StatusCode != http.StatusOK {
+		return "cant get page"
 	}
-
 	defer rsp.Body.Close()
-
 	buf, err := ioutil.ReadAll(rsp.Body)
 	if err != nil {
-		return &url.URL{}, "cantGetToken"
+		return "cant read page"
 	}
 	re := regexp.MustCompile(`"websocketUrl":"*(.*?)\s*"`)
 	m := re.FindSubmatch(buf)
 	if len(m) != 2 {
-		return &url.URL{}, "cantGetToken"
+		return "cant get ws"
 	}
-	r := bytes.ReplaceAll(m[1], []byte(`\u002F`), []byte(`/`))
-	u, err := url.Parse(string(r))
-	if err != nil {
-		return &url.URL{}, "cantGetToken"
-	}
-
-	re = regexp.MustCompile(`img.strpst.com/thumbs/*(.*?)\s*"`)
-	id := re.FindSubmatch(buf)
-	if len(id) != 2 {
-		return &url.URL{}, "cantGetToken"
-	}
-	xid := string(id[1])
-	return u, xid[strings.Index(xid, "/")+1:]
+	return string(bytes.ReplaceAll(m[1], []byte(`\u002F`), []byte(`/`)))
 }
 
 func xWorker(workerData Info) {
-	fmt.Println("Start", workerData.room, "server", workerData.Server, "proxy", workerData.Proxy)
+	fmt.Println("Start", workerData.room, "id", workerData.Id, "proxy", workerData.Proxy)
 	
 	rooms.Add <- workerData
 
@@ -169,9 +153,16 @@ func xWorker(workerData Info) {
 		rooms.Del <- workerData.room
 	}()
 	
-	u, id := getToken(workerData.room)
-	if id == "cantGetToken" {
-		fmt.Println("cantGetToken", workerData.room)
+	xurl := workerData.Server
+	
+	if xurl == "" {
+		xurl = getToken(workerData.room)
+		workerData.Server = xurl
+	}
+	
+	u, err := url.Parse(xurl)
+	if err != nil {
+		fmt.Println(xurl, err, workerData.room)
 		return
 	}
 	
@@ -194,7 +185,7 @@ func xWorker(workerData Info) {
 
 	c, _, err := Dialer.Dial(u.String(), nil)
 	if err != nil {
-		fmt.Println(err.Error())
+		fmt.Println(err.Error(), u.String(), workerData.room)
 		return
 	}
 
@@ -225,6 +216,7 @@ func xWorker(workerData Info) {
 		rooms.Add <- workerData
 
 		if m.SubscriptionKey == "connected" {
+			id := workerData.Id
 			messages := [][]byte{}
 			messages = append(messages, []byte(`{"id":"1660248194970-sub-lotteryChanged","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/lotteryChanged"}`))
 			messages = append(messages, []byte(`{"id":"1660248194970-sub-userBanned:`+id+`","method":"PUT","url":"/front/clients/`+m.Params.ClientId+`/subscriptions/userBanned:`+id+`"}`))

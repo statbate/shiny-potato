@@ -113,9 +113,10 @@ func fastStart() {
 		if now > v.Last+60*20 {
 			continue
 		}
-		fmt.Println("fastStart:", k, v.Server, v.Proxy)
+		fmt.Println("fastStart:", k, v.Id, v.Proxy)
 		workerData := Info{
 			room:   k,
+			Id:     v.Id,
 			Server: v.Server,
 			Proxy:  v.Proxy,
 			Online: v.Online,
