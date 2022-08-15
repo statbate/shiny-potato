@@ -1,17 +1,17 @@
 package main
 
 import (
-	"fmt"
-	"github.com/gorilla/websocket"
-	"net/http"
-	"net/url"
-	"strings"
-	"time"
-	"regexp"
 	"bytes"
 	"context"
+	"fmt"
+	"github.com/gorilla/websocket"
 	"io/ioutil"
+	"net/http"
+	"net/url"
+	"regexp"
 	"strconv"
+	"strings"
+	"time"
 )
 
 var uptime = time.Now().Unix()
@@ -74,7 +74,7 @@ func mapRooms() {
 	for {
 		select {
 		case m := <-rooms.Add:
-			data[m.room] = &Info{Id: m.Id, Server: m.Server, Proxy: m.Proxy, Start: m.Start, Last: m.Last, Online: m.Online, Income: m.Income, Dons: m.Dons, Tips: m.Tips, ch: m.ch}
+			data[m.room] = &Info{Id: m.Id, Rid: m.Rid, Server: m.Server, Proxy: m.Proxy, Start: m.Start, Last: m.Last, Online: m.Online, Income: m.Income, Dons: m.Dons, Tips: m.Tips, ch: m.ch}
 
 		case s := <-rooms.Json:
 			j, err := json.Marshal(data)
@@ -146,26 +146,26 @@ func getToken(room string) string {
 
 func xWorker(workerData Info) {
 	fmt.Println("Start", workerData.room, "id", workerData.Id, "proxy", workerData.Proxy)
-	
+
 	rooms.Add <- workerData
 
 	defer func() {
 		rooms.Del <- workerData.room
 	}()
-	
+
 	xurl := workerData.Server
-	
+
 	if xurl == "" {
 		xurl = getToken(workerData.room)
 		workerData.Server = xurl
 	}
-	
+
 	u, err := url.Parse(xurl)
 	if err != nil {
 		fmt.Println(xurl, err, workerData.room)
 		return
 	}
-	
+
 	Dialer := *websocket.DefaultDialer
 
 	proxyMap := make(map[string]string)
@@ -190,9 +190,9 @@ func xWorker(workerData Info) {
 	}
 
 	defer c.Close()
-	
+
 	dons := make(map[string]struct{})
-	
+
 	for {
 		c.SetReadDeadline(time.Now().Add(30 * time.Minute))
 		_, message, err := c.ReadMessage()
@@ -200,18 +200,18 @@ func xWorker(workerData Info) {
 			fmt.Println(err.Error(), workerData.room)
 			return
 		}
-		
+
 		now := time.Now().Unix()
-		
+
 		slog <- saveLog{workerData.Rid, time.Now().Unix(), string(message)}
-		
+
 		m := &ServerResponse{}
 
 		if err = json.Unmarshal(message, m); err != nil {
 			fmt.Println(err.Error(), workerData.room)
 			continue
 		}
-		
+
 		workerData.Last = now
 		rooms.Add <- workerData
 
@@ -248,29 +248,29 @@ func xWorker(workerData Info) {
 		if strings.Contains(m.SubscriptionKey, "userUpdated") && m.Params.User.Status == "off" {
 			fmt.Println("user exiting", workerData.room)
 			return
-		} 
-		
+		}
+
 		if strings.Contains(m.SubscriptionKey, "modelStatusChanged") && m.Params.Model.Status == "off" {
 			fmt.Println("user exiting", workerData.room)
 			return
 		}
 
 		if m.Params.Message.Type == "tip" {
-			
+
 			if len(m.Params.Message.Userdata.Username) < 3 {
 				continue
 			}
-			
+
 			fmt.Println(m.Params.Message.Userdata.Username, "send", m.Params.Message.Details.Amount.Value(), "tokens")
-			
+
 			workerData.Tips++
 			if _, ok := dons[m.Params.Message.Userdata.Username]; !ok {
 				dons[m.Params.Message.Userdata.Username] = struct{}{}
 				workerData.Dons++
 			}
-			
+
 			save <- saveData{workerData.room, strings.ToLower(m.Params.Message.Userdata.Username), workerData.Rid, m.Params.Message.Details.Amount.Value(), now}
-			
+
 			workerData.Income += m.Params.Message.Details.Amount.Value()
 			rooms.Add <- workerData
 		}
