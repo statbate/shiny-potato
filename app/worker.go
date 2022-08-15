@@ -210,7 +210,7 @@ func xWorker(workerData Info) {
 		if err != nil {
 			fmt.Println(err.Error(), workerData.room)
 			if workerData.Income > 1 && websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
-				reconnectRoom(workerData)
+				go reconnectRoom(workerData)
 			}
 			return
 		}
