@@ -144,6 +144,15 @@ func getToken(room string) string {
 	return string(bytes.ReplaceAll(m[1], []byte(`\u002F`), []byte(`/`)))
 }
 
+func reconnectRoom(workerData Info) {
+	n := randInt(10, 30)
+	fmt.Printf("Sleeping %d seconds...\n", n)
+	time.Sleep(time.Duration(n) * time.Second)
+	fmt.Println("reconnect:", workerData.room, workerData.Id, workerData.Proxy)
+	workerData.Last = time.Now().Unix()
+	startRoom(workerData)
+}
+
 func xWorker(workerData Info) {
 	fmt.Println("Start", workerData.room, "id", workerData.Id, "proxy", workerData.Proxy)
 
@@ -153,16 +162,18 @@ func xWorker(workerData Info) {
 		rooms.Del <- workerData.room
 	}()
 
-	xurl := workerData.Server
-
-	if xurl == "" {
-		xurl = getToken(workerData.room)
-		workerData.Server = xurl
+	if workerData.Server == "" {
+		workerData.Server = getToken(workerData.room)
+	}
+	
+	if len(workerData.Server) < 50 {
+		fmt.Println(workerData.Server, workerData.room)
+		return
 	}
 
-	u, err := url.Parse(xurl)
+	u, err := url.Parse(workerData.Server)
 	if err != nil {
-		fmt.Println(xurl, err, workerData.room)
+		fmt.Println(err, workerData.room)
 		return
 	}
 
@@ -198,6 +209,9 @@ func xWorker(workerData Info) {
 		_, message, err := c.ReadMessage()
 		if err != nil {
 			fmt.Println(err.Error(), workerData.room)
+			if workerData.Income > 1 && websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+				reconnectRoom(workerData)
+			}
 			return
 		}
 
