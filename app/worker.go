@@ -2,10 +2,9 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"github.com/gorilla/websocket"
-	"io/ioutil"
+	"os/exec"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -118,26 +117,20 @@ func announceCount() {
 }
 
 func getToken(room string) string {
-	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, "https://stripchat.com/"+room, nil)
-	if err != nil {
-		return "cant get req"
-	}
-	req.Header.Add("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:33.0) Gecko/20100101 Firefox/33.0")
-	req.Header.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	req.Header.Add("Accept-Language", "en-US,en;q=0.5")
-	req.Header.Add("Connection", "keep-alive")
-	req.Header.Add("Referer", "https://stripchat.com")
-	rsp, err := http.DefaultClient.Do(req)
-	if err != nil || rsp.StatusCode != http.StatusOK {
-		return "cant get page"
-	}
-	defer rsp.Body.Close()
-	buf, err := ioutil.ReadAll(rsp.Body)
-	if err != nil {
-		return "cant read page"
-	}
+	
+	cmd := exec.Command("/home/stat/python/test.py", "https://stripchat.com/api/front/v2/config/data?requestPath="+room)
+    stdout, err := cmd.Output()
+
+    if err != nil {
+        fmt.Println(err.Error())
+        return "cant exec py"
+    }
+
+
+    //fmt.Println(string(stdout))
+
 	re := regexp.MustCompile(`"websocketUrl":"*(.*?)\s*"`)
-	m := re.FindSubmatch(buf)
+	m := re.FindSubmatch(stdout)
 	if len(m) != 2 {
 		return "cant get ws"
 	}
@@ -261,19 +254,19 @@ func xWorker(workerData Info) {
 		}
 
 		if strings.Contains(m.SubscriptionKey, "userUpdated") && m.Params.User.Status == "off" {
-			fmt.Println("user exiting", workerData.room)
+			fmt.Println("userUpdated exiting", workerData.room)
 			return
 		}
 
 		if strings.Contains(m.SubscriptionKey, "modelStatusChanged") && m.Params.Model.Status == "off" {
-			fmt.Println("user exiting", workerData.room)
+			fmt.Println("modelStatusChanged exiting", workerData.room)
 			return
 		}
 
 		if m.Params.Message.Type == "tip" {
 
 			if len(m.Params.Message.Userdata.Username) < 3 {
-				continue
+				m.Params.Message.Userdata.Username = "anon_tips"
 			}
 
 			fmt.Println(m.Params.Message.Userdata.Username, "send", m.Params.Message.Details.Amount.Value(), "tokens")
