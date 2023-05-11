@@ -48,12 +48,9 @@ func listHandler(w http.ResponseWriter, _ *http.Request) {
 }
 
 func debugHandler(w http.ResponseWriter, _ *http.Request) {
-	ws.Count <- 0
-	l := <-ws.Count
 	runtime.ReadMemStats(&memInfo)
 	j, err := json.Marshal(struct {
 		Goroutines int
-		WebSocket  int
 		Uptime     int64
 		Alloc      uint64
 		HeapSys    uint64
@@ -62,7 +59,6 @@ func debugHandler(w http.ResponseWriter, _ *http.Request) {
 		Alloc:      memInfo.Alloc,
 		HeapSys:    memInfo.HeapSys,
 		Uptime:     uptime,
-		WebSocket:  l,
 	})
 	if err == nil {
 		fmt.Fprint(w, string(j))
