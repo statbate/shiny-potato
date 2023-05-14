@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/gorilla/websocket"
-	"os/exec"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -108,11 +108,11 @@ func announceCount() {
 		rooms.Count <- 0
 		l := <-rooms.Count
 		msg, err := json.Marshal(struct {
-			Chanel  string `json:"chanel"`
-			Count int `json:"count"`
+			Chanel string `json:"chanel"`
+			Count  int    `json:"count"`
 		}{
-			Chanel:  "stripchat",
-			Count: l,
+			Chanel: "stripchat",
+			Count:  l,
 		})
 		if err == nil {
 			socketServer <- msg
@@ -121,17 +121,16 @@ func announceCount() {
 }
 
 func getToken(room string) string {
-	
+
 	cmd := exec.Command("/home/stat/python/test.py", "https://stripchat.com/api/front/v2/config/data?requestPath="+room)
-    stdout, err := cmd.Output()
+	stdout, err := cmd.Output()
 
-    if err != nil {
-        fmt.Println(err.Error())
-        return "cant exec py"
-    }
+	if err != nil {
+		fmt.Println(err.Error())
+		return "cant exec py"
+	}
 
-
-    //fmt.Println(string(stdout))
+	//fmt.Println(string(stdout))
 
 	re := regexp.MustCompile(`"websocketUrl":"*(.*?)\s*"`)
 	m := re.FindSubmatch(stdout)
@@ -162,7 +161,7 @@ func xWorker(workerData Info) {
 	if workerData.Server == "" {
 		workerData.Server = getToken(workerData.room)
 	}
-	
+
 	if len(workerData.Server) < 50 {
 		fmt.Println(workerData.Server, workerData.room)
 		return

@@ -69,11 +69,24 @@ func saveDB() {
 	index := make(map[string]int64)
 
 	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	cleanCache := time.NewTicker(12 * time.Hour)
+	defer cleanCache.Stop()
 
 	index = map[string]int64{"hours": int64(hours), "tokens": getSumTokens(), "last": time.Now().Unix()}
 
 	for {
 		select {
+		case <-cleanCache.C:
+			l := len(data)
+			now := time.Now().Unix()
+			for k, v := range data {
+				if now > v.Last+60*60*48 {
+					delete(data, k)
+				}
+			}
+			fmt.Println("Clean map:", l, "=>", len(data))
 		case <-ticker.C:
 			if len(bulk) > 0 {
 				tx, err := Mysql.Begin()
@@ -156,26 +169,16 @@ func saveDB() {
 			if minutes >= 5 && now > index["last"]+30 {
 				seconds += minutes * 60
 				msg, err := json.Marshal(struct {
-					Chanel string `json:"chanel"`
-					Index float64 `json:"index"`
+					Chanel string  `json:"chanel"`
+					Index  float64 `json:"index"`
 				}{
-					Chanel:  "stripchat",
-					Index: float64(index["tokens"]) / float64(seconds) * 3600 * 0.05 / 1000,
+					Chanel: "stripchat",
+					Index:  float64(index["tokens"]) / float64(seconds) * 3600 * 0.05 / 1000,
 				})
 				if err == nil {
 					socketServer <- msg
 				}
 				index["last"] = now
-			}
-
-			if randInt(0, 10000) == 777 { // 0.001%
-				l := len(data)
-				for k, v := range data {
-					if now > v.Last+60*60*48 {
-						delete(data, k)
-					}
-				}
-				fmt.Println("Clean map:", l, "=>", len(data))
 			}
 		}
 	}
@@ -184,6 +187,7 @@ func saveDB() {
 func saveLogs() {
 	bulk := []saveLog{}
 	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
