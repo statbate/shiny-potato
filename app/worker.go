@@ -175,10 +175,6 @@ func xWorker(workerData Info) {
 
 	Dialer := *websocket.DefaultDialer
 
-	proxyMap := make(map[string]string)
-	proxyMap["us"] = "5.161.128.20:3128"
-	proxyMap["fi"] = "65.21.180.188:3128"
-
 	if _, ok := conf.Proxy[workerData.Proxy]; ok {
 		Dialer = websocket.Dialer{
 			Proxy: http.ProxyURL(&url.URL{
