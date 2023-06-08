@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -45,8 +44,6 @@ var (
 )
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
-
 	startConfig()
 
 	initMysql()
@@ -122,10 +119,6 @@ func socketHandler() {
 	}
 }
 
-func randInt(min int, max int) int {
-	return min + rand.Intn(max-min)
-}
-
 func fastStart() {
 	defer func() {
 		go updateFileRooms()
@@ -160,6 +153,6 @@ func fastStart() {
 			Tips:   v.Tips,
 		}
 		startRoom(workerData)
-		time.Sleep(5 * time.Second)
+		time.Sleep(100 * time.Millisecond)
 	}
 }

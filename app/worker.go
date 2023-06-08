@@ -1,16 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"net/http"
 	"net/url"
-	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"encoding/base64"
 )
 
 var uptime = time.Now().Unix()
@@ -120,32 +118,9 @@ func announceCount() {
 	}
 }
 
-func getToken(room string) string {
-
-	cmd := exec.Command("/home/stat/python/test.py", "https://stripchat.com/api/front/v2/config/data?requestPath="+room)
-	stdout, err := cmd.Output()
-
-	if err != nil {
-		fmt.Println(err.Error())
-		return "cant exec py"
-	}
-
-	//fmt.Println(string(stdout))
-
-	re := regexp.MustCompile(`"websocketUrl":"*(.*?)\s*"`)
-	m := re.FindSubmatch(stdout)
-	if len(m) != 2 {
-		return "cant get ws"
-	}
-	return string(bytes.ReplaceAll(m[1], []byte(`\u002F`), []byte(`/`)))
-}
-
 func reconnectRoom(workerData Info) {
-	n := randInt(10, 30)
-	fmt.Printf("Sleeping %d seconds...\n", n)
-	time.Sleep(time.Duration(n) * time.Second)
+	time.Sleep(5 * time.Second)
 	fmt.Println("reconnect:", workerData.room, workerData.Id, workerData.Proxy)
-	workerData.Last = time.Now().Unix()
 	startRoom(workerData)
 }
 
@@ -158,16 +133,19 @@ func xWorker(workerData Info) {
 		rooms.Del <- workerData.room
 	}()
 
-	if workerData.Server == "" {
-		workerData.Server = getToken(workerData.room)
-	}
 
 	if len(workerData.Server) < 50 {
 		fmt.Println(workerData.Server, workerData.room)
 		return
 	}
+	
+	wsUrl, err := base64.StdEncoding.DecodeString(workerData.Server)
+	if err != nil {
+		fmt.Println(err, workerData.room)
+		return
+	}
 
-	u, err := url.Parse(workerData.Server)
+	u, err := url.Parse(string(wsUrl))
 	if err != nil {
 		fmt.Println(err, workerData.room)
 		return
@@ -195,31 +173,48 @@ func xWorker(workerData Info) {
 	defer c.Close()
 
 	dons := make(map[string]struct{})
+	
+	ticker := time.NewTicker(60 * 60 * 8 * time.Second)
+	defer ticker.Stop()
+	
+	var income int64
+	income = 0
 
 	for {
+		
+		select {
+		case <-ticker.C:
+			fmt.Println("too_long exit:", workerData.room)
+			return
+		case <-workerData.ch:
+			fmt.Println("Exit room:", workerData.room)
+			return
+		default:
+		}
+		
 		c.SetReadDeadline(time.Now().Add(30 * time.Minute))
 		_, message, err := c.ReadMessage()
 		if err != nil {
 			fmt.Println(err.Error(), workerData.room)
-			if workerData.Income > 1 && websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+			if income > 1 && websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 				go reconnectRoom(workerData)
 			}
 			return
 		}
 
 		now := time.Now().Unix()
-
-		slog <- saveLog{workerData.Rid, time.Now().Unix(), string(message)}
-
+		slog <- saveLog{workerData.Rid, now, string(message)}
+		
+		if now > workerData.Last+60*60 {
+			fmt.Println("no_tips exit:", workerData.room)
+			return
+		}
+		
 		m := &ServerResponse{}
-
 		if err = json.Unmarshal(message, m); err != nil {
 			fmt.Println(err.Error(), workerData.room)
 			continue
 		}
-
-		workerData.Last = now
-		rooms.Add <- workerData
 
 		if m.SubscriptionKey == "connected" {
 			id := workerData.Id
@@ -250,6 +245,7 @@ func xWorker(workerData Info) {
 				}
 			}
 			messages = nil
+			continue
 		}
 
 		if strings.Contains(m.SubscriptionKey, "userUpdated") && m.Params.User.Status == "off" {
@@ -263,23 +259,25 @@ func xWorker(workerData Info) {
 		}
 
 		if m.Params.Message.Type == "tip" {
-
 			if len(m.Params.Message.Userdata.Username) < 3 {
 				m.Params.Message.Userdata.Username = "anon_tips"
 			}
 
-			fmt.Println(m.Params.Message.Userdata.Username, "send", m.Params.Message.Details.Amount.Value(), "tokens")
-
-			workerData.Tips++
 			if _, ok := dons[m.Params.Message.Userdata.Username]; !ok {
 				dons[m.Params.Message.Userdata.Username] = struct{}{}
 				workerData.Dons++
 			}
-
+			
 			save <- saveData{workerData.room, strings.ToLower(m.Params.Message.Userdata.Username), workerData.Rid, m.Params.Message.Details.Amount.Value(), now}
 
+			income += m.Params.Message.Details.Amount.Value()
+			
+			workerData.Tips++
+			workerData.Last = now
 			workerData.Income += m.Params.Message.Details.Amount.Value()
 			rooms.Add <- workerData
+			
+			fmt.Println(m.Params.Message.Userdata.Username, "send", m.Params.Message.Details.Amount.Value(), "tokens to", workerData.room)
 		}
 	}
 }

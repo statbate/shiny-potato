@@ -71,12 +71,12 @@ func cmdHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	params := r.URL.Query()
-	if len(params["room"]) > 0 && len(params["id"]) > 0 && len(params["proxy"]) > 0 {
+	if len(params["room"]) > 0 && len(params["id"]) > 0 && len(params["proxy"]) > 0 && len(params["ws"]) > 0 {
 		now := time.Now().Unix()
 		workerData := Info{
 			room:   params["room"][0],
 			Id:     params["id"][0],
-			Server: "",
+			Server: params["ws"][0],
 			Proxy:  params["proxy"][0],
 			Online: "0",
 			Start:  now,
